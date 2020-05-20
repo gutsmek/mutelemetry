@@ -256,7 +256,7 @@ int main(int argc, char **argv) {
   for (auto &f : futures) {
     RResult result = f.get();
     if (!get<0>(result))
-      LOG(INFO) << "Thread [" << get<1>(result) << "] failed" << endl;
+      LOG(ERROR) << "Thread [" << get<1>(result) << "] failed" << endl;
   }
 
   pause();

@@ -52,7 +52,7 @@ struct DataType0 {
     len += sizeof(b);
     std::memcpy(&serialized[len], &c, sizeof(c));
     assert(serialized.size() == sizeof(c) + len);
-    LOG(INFO) << name() << " builtin serialization finished";
+    VLOG(2) << name() << " builtin serialization finished";
     return serialized;
   }
 };
