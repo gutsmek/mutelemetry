@@ -1,0 +1,5 @@
+[mutelemetry]
+    with_local_log = true
+    with_network = false
+    #log_directory_path = "/home/nvidia/work/telemetry_logs"
+
