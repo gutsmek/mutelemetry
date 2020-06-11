@@ -56,7 +56,7 @@ bool MuTelemetry::read_config(const string &file) {
   return res;
 }
 
-bool MuTelemetry::init(fflow::RouteSystemPtr roster) {
+bool MuTelemetry::init(fflow::RouteSystemPtr roster, bool rt) {
   MuTelemetry &instance = getInstance();
   if (instance.start_timestamp_ != 0) {
     LOG(INFO) << "MuTelemetry already initialized\n";
@@ -65,11 +65,17 @@ bool MuTelemetry::init(fflow::RouteSystemPtr roster) {
 
   instance.start_timestamp_ = instance.timestamp();
   if (instance.read_config()) {
-    if (instance.with_network_ && roster != nullptr) {
-      instance.roster_ = roster;
-    } else {
-      LOG(INFO) << "MuTelemetry network is disabled\n";
+    if (instance.with_network_) {
+      instance.with_network_ =
+          instance.streamer_.init(roster, &instance.net_queue_);
+      if (instance.with_network_) {
+        LOG(INFO) << "Starting MuTelemetry streaming\n";
+        instance.streamer_.run(rt);
+      }
     }
+
+    if (!instance.with_network_)
+      LOG(INFO) << "MuTelemetry streaming is disabled\n";
 
     if (instance.with_local_log_) {
       stringstream filename;
@@ -92,7 +98,7 @@ bool MuTelemetry::init(fflow::RouteSystemPtr roster) {
       if (instance.with_local_log_) {
         LOG(INFO) << "MuTelemetry log file: " << instance.logger_.get_logname()
                   << endl;
-        instance.logger_.run();
+        instance.logger_.start();
       }
     }
 

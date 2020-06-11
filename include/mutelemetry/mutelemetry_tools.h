@@ -11,6 +11,9 @@ namespace mutelemetry_tools {
 using SerializedData = std::vector<uint8_t>;
 using SerializedDataPtr = std::shared_ptr<SerializedData>;
 
+bool check_ulog_data_begin(const uint8_t *);
+bool check_ulog_valid(const uint8_t *);
+
 template <typename T>
 class ConcQueue {
  public:
@@ -24,9 +27,7 @@ class ConcQueue {
 
   T dequeue(void) noexcept {
     std::unique_lock<std::mutex> lock{mutex_};
-    while (queue_.empty()) {
-      condNewData_.wait(lock);
-    }
+    while (queue_.empty()) condNewData_.wait(lock);
     auto elem = std::move(queue_.front());
     queue_.pop();
     return elem;
@@ -40,6 +41,11 @@ class ConcQueue {
   bool empty(void) const {
     std::lock_guard<std::mutex> lock{mutex_};
     return queue_.empty();
+  }
+
+  const T &front(void) const {
+    std::unique_lock<std::mutex> lock{mutex_};
+    return queue_.front();
   }
 
  private:
@@ -69,9 +75,7 @@ class ConcStack {
 
   T pop(void) noexcept {
     std::unique_lock<std::mutex> lock{mutex_};
-    while (stack_.empty()) {
-      condNewData_.wait(lock);
-    }
+    while (stack_.empty()) condNewData_.wait(lock);
     auto elem = std::move(stack_.top());
     stack_.pop();
     return elem;

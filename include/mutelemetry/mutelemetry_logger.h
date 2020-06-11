@@ -1,7 +1,5 @@
 #pragma once
 
-#include "mutelemetry/mutelemetry_tools.h"
-
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -9,8 +7,11 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <stack>
 #include <string>
 #include <vector>
+
+#include "mutelemetry/mutelemetry_tools.h"
 
 namespace mutelemetry_logger {
 
@@ -27,7 +28,7 @@ class MutelemetryLogger {
       bool is_full = false;
       size_t data_size = dp->size();
       if (data_size + data_size_ >= max_data_size_) is_full = true;
-      if (has_data()) add_started_ = std::chrono::system_clock::now();
+      if (!has_data()) add_started_ = std::chrono::system_clock::now();
       data_size_ += data_size;
       buffer_.emplace_back(dp);
       return is_full;
@@ -79,12 +80,16 @@ class MutelemetryLogger {
   MutelemetryLogger(const MutelemetryLogger &) = delete;
   MutelemetryLogger &operator=(const MutelemetryLogger &) = delete;
 
-  virtual ~MutelemetryLogger() { release(); }
+  virtual ~MutelemetryLogger() {
+    stop();
+    release();
+  }
 
  public:
   const inline std::string &get_logname() const { return filename_; }
 
-  void run();
+  void start();
+  void stop() { running_ = false; }
   bool init(
       const std::string &,
       mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
@@ -92,9 +97,10 @@ class MutelemetryLogger {
 
  private:
   inline void flush() {
-    if (running_) file_.flush();
+    if (file_.is_open()) file_.flush();
   }
 
+  void main_loop();
   void start_io_worker(DataBuffer *, bool do_flush = false);
 
  private:
@@ -104,9 +110,10 @@ class MutelemetryLogger {
   std::string filename_;
   std::ofstream file_;
   std::array<DataBuffer, 8> mem_pool_;
-  mutelemetry_tools::ConcStack<DataBuffer *> pool_stacked_index_;
+  std::stack<DataBuffer *> pool_stacked_index_;
+  std::mutex idx_mutex_;
   DataBuffer *curr_idx_;
-  mutable std::mutex mutex_;
+  mutable std::mutex io_mutex_;
 };
 
 }  // namespace mutelemetry_logger

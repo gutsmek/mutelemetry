@@ -1,16 +1,22 @@
 #include <assert.h>
+#include <boost/program_options.hpp>
 #include <future>
 #include <sstream>
 #include <thread>
 #include <utility>
 
+#include <muroute/funudp.h>
+#include <muroute/subsystem.h>
 #include <mutelemetry/mutelemetry.h>
 
 #include "test_types.h"
 
 using namespace std;
+using namespace fflow;
 using namespace mutelemetry;
 using namespace mutelemetry_ulog;
+using namespace mutelemetry_network;
+using namespace boost::program_options;
 
 class DataType0Serializable : public Serializable, public DataType0 {
  public:
@@ -122,17 +128,18 @@ struct ThreadInternals {
       : delay_(delay), n_repeats_(n_repeats) {}
 };
 
+const vector<ThreadInternals> params = {
+    {chrono::milliseconds(20), 100},  // 0
+    {chrono::milliseconds(50), 80},   // 1
+    {chrono::milliseconds(100), 50},  // 2
+    {chrono::milliseconds(150), 20},  // 3
+    {chrono::milliseconds(500), 20},  // 4
+};
+
 auto generator = [](int type) {
   bool ret = true;
   int iteration = 0;
   RResult result{false, this_thread::get_id()};
-  static const vector<ThreadInternals> params = {
-      {chrono::milliseconds(20), 100},  // 0
-      {chrono::milliseconds(50), 80},   // 1
-      {chrono::milliseconds(100), 50},  // 2
-      {chrono::milliseconds(150), 20},  // 3
-      {chrono::milliseconds(500), 20},  // 4
-  };
 
   LOG(INFO) << "Starting Thread [" << get<1>(result) << "] for type " << type
             << endl;
@@ -227,10 +234,51 @@ auto generator = [](int type) {
 };
 
 int main(int argc, char **argv) {
-  if (argc != 2) return 1;
-
   // google::InitGoogleLogging(argv[0]);
-  MuTelemetry::init();
+
+  options_description options("Allowed options");
+  options.add_options()("help", "Print help")
+      //
+      ("iface", value<std::string>()->default_value(""),
+       "Interface to use with ULog Streamer")
+      //
+      ("port",
+       value<uint32_t>()->default_value(MutelemetryStreamer::get_port()),
+       "UDP port of ULog Streamer")
+      //
+      ("threads", value<uint32_t>()->default_value(params.size()),
+       "Number of threads to use in test");
+
+  variables_map varmap;
+  store(parse_command_line(argc, argv, options, command_line_style::unix_style),
+        varmap);
+  notify(varmap);
+
+  if (varmap.count("help") > 0) {
+    cout << options << "\n";
+    return 1;
+  }
+
+  const string iface = varmap["iface"].as<string>();
+  const uint32_t port = varmap["port"].as<uint32_t>();
+  const uint32_t n_threads = varmap["threads"].as<uint32_t>();
+
+  RouteSystemPtr roster = nullptr;
+  shared_ptr<AbstractEdgeInterface> udptr = nullptr;
+
+  if (iface != "") {
+    udptr = createEdgeFunctionByName("EdgeUdp");
+    if (udptr->open(iface, port)) {
+      roster = RouteSystem::createRouteSys();
+      roster->setMcastId(1);  // ?
+      roster->setMcompId(1);  // ?
+      roster->add_edge_transport(udptr);
+      // protocol will be added by MuTelemetry
+    }
+  }
+
+  bool realtime = false;  // don't run telemetry discard thread
+  MuTelemetry::init(roster, realtime);
 
   MuTelemetry &mt = MuTelemetry::getInstance();
 
@@ -247,10 +295,9 @@ int main(int argc, char **argv) {
   mt.register_data_format("DataType4", "DataType3[3] array;");
   mt.register_param("float param2", -3.01f);
 
-  const int n_threads = atoi(argv[1]);
   RResultFutures futures(n_threads);
 
-  for (int i = 0; i < n_threads; ++i)
+  for (uint32_t i = 0; i < n_threads; ++i)
     futures[i] = std::async(launch::async, generator, i % 5);
 
   for (auto &f : futures) {

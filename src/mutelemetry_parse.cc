@@ -136,7 +136,12 @@ MutelemetryParser::ParseState MutelemetryParser::parse_header(
 MutelemetryParser::ParseState MutelemetryParser::parse_flags(
     const uint8_t *buffer, uint16_t size) {
   assert(state_ == STATE_FLAGS);
-  ParseState next_state = STATE_DEFINITION;
+  ParseState next_state =
+#ifdef RELAXED_STATE_MACHINE
+      state_;
+#else
+      STATE_INVALID;
+#endif
   const ULogMessageHeader *hdr =
       reinterpret_cast<const ULogMessageHeader *>(buffer);
   if (ULogMessageType(hdr->type_) == ULogMessageType::B) {
@@ -146,10 +151,15 @@ MutelemetryParser::ParseState MutelemetryParser::parse_flags(
     bool contains_appended_data = incompat_flags[0] & 0x1;
     bool has_unknown_incompat_bits = false;
 
+    next_state = STATE_DEFINITION;
+
     if (incompat_flags[0] & ~0x1) has_unknown_incompat_bits = true;
 
     for (int i = 1; i < 8 && !has_unknown_incompat_bits; ++i)
-      if (incompat_flags[i]) has_unknown_incompat_bits = true;
+      if (incompat_flags[i]) {
+        has_unknown_incompat_bits = true;
+        break;
+      }
 
     if (has_unknown_incompat_bits)
       next_state = STATE_INVALID;
