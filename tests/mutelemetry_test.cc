@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const string iface = varmap["iface"].as<std::string>();
+  const string iface = varmap["iface"].as<string>();
   const uint32_t port = varmap["port"].as<uint32_t>();
   const uint32_t n_threads = varmap["threads"].as<uint32_t>();
 

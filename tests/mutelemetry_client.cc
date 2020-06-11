@@ -1,5 +1,3 @@
-// FIXME: rename to client!!!!
-
 #include <muroute/funudp.h>
 #include <muroute/subsystem.h>
 #include <mutelemetry/mutelemetry.h>
@@ -25,21 +23,19 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
 };
 
 void send_mavlink_message(RouteSystemPtr roster, mavlink_message_t &msg) {
-  uint8_t buffer[1500];
+  uint8_t buffer[500];
   uint8_t *data = buffer;
   size_t len = mavlink_msg_to_send_buffer(data, &msg);
-
-  // FIXME: bcast only
-  // auto a = SparseAddress(0, fflow::proto::FLOWPROTO_ASYNC, 0);
-  // roster->sendmavmsg(msg, {a});
 
   auto a = SparseAddress(0, 0, 0);
   roster->sendmavmsg(msg, {a});
 }
 
-void send_ack(RouteSystemPtr roster, int cmd, int sys_id, int comp_id,
-              bool success) {
+void send_ack(RouteSystemPtr roster, int cmd, bool success) {
   mavlink_message_t msg;
+
+  int sys_id = roster->getMcastId();
+  int comp_id = roster->getMcompId();
 
   mavlink_msg_command_ack_pack(
       sys_id, comp_id, &msg, cmd,
@@ -70,13 +66,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const string iface = varmap["iface"].as<std::string>();
+  const string iface = varmap["iface"].as<string>();
   const uint32_t port = varmap["port"].as<uint32_t>();
 
-  RouteSystemPtr roster = nullptr;
-  shared_ptr<AbstractEdgeInterface> udptr = nullptr;
-
-  udptr = createEdgeFunctionByName("EdgeUdp");
+  shared_ptr<AbstractEdgeInterface> udptr = createEdgeFunctionByName("EdgeUdp");
 
   bool open_res = iface == ""
                       ? (dynamic_cast<EdgeUdp *>(udptr.get()))->open(port)
@@ -86,7 +79,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  roster = RouteSystem::createRouteSys();
+  RouteSystemPtr roster = RouteSystem::createRouteSys();
   roster->setMcastId(1);  // ?
   roster->setMcompId(1);  // ?
   roster->add_edge_transport(udptr);
@@ -94,7 +87,8 @@ int main(int argc, char **argv) {
                         sizeof(mutelemetry_proto_handlers) /
                             sizeof(mutelemetry_proto_handlers[0]));
 
-  send_ack(roster, MAV_CMD_LOGGING_START, 1, 1, true);
+  // just a test of connection
+  send_ack(roster, MAV_CMD_LOGGING_START, true);
 
   pause();
 
