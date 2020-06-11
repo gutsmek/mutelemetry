@@ -1,7 +1,5 @@
 #pragma once
 
-#include "mutelemetry/mutelemetry_tools.h"
-
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -11,6 +9,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include "mutelemetry/mutelemetry_tools.h"
 
 namespace mutelemetry_logger {
 
@@ -79,12 +79,16 @@ class MutelemetryLogger {
   MutelemetryLogger(const MutelemetryLogger &) = delete;
   MutelemetryLogger &operator=(const MutelemetryLogger &) = delete;
 
-  virtual ~MutelemetryLogger() { release(); }
+  virtual ~MutelemetryLogger() {
+    stop();
+    release();
+  }
 
  public:
   const inline std::string &get_logname() const { return filename_; }
 
-  void run();
+  void start();
+  void stop() { running_ = false; }
   bool init(
       const std::string &,
       mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
@@ -92,7 +96,7 @@ class MutelemetryLogger {
 
  private:
   inline void flush() {
-    if (running_) file_.flush();
+    if (file_.is_open()) file_.flush();
   }
 
   void start_io_worker(DataBuffer *, bool do_flush = false);
