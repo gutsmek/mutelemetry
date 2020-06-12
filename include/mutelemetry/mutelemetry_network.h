@@ -2,8 +2,11 @@
 
 #include <muroute/subsystem.h>
 #include <atomic>
-
+#include <functional>
+#include "muroute/mavlink2/common/mavlink.h"
 #include "mutelemetry/mutelemetry_tools.h"
+
+using namespace std::placeholders;
 
 namespace mutelemetry_network {
 
@@ -37,6 +40,27 @@ class MutelemetryStreamer {
   fflow::RouteSystemPtr roster_;
   mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr>
       *data_queue_;
+
+  // protocol definition
+ private:
+  fflow::pointprec_t proto_command_handler(uint8_t *, size_t,
+                                           fflow::SparseAddress);
+
+  fflow::pointprec_t proto_command_ack_handler(uint8_t *, size_t,
+                                               fflow::SparseAddress);
+
+  size_t proto_table_len = 2;
+
+  fflow::message_handler_note_t proto_table[2] = {
+      {MAVLINK_MSG_ID_COMMAND_LONG,
+       std::bind(&MutelemetryStreamer::proto_command_handler, this, _1, _2,
+                 _3)},
+      {MAVLINK_MSG_ID_LOGGING_ACK /* #268 */,
+       [this](uint8_t *a, size_t b,
+              fflow::SparseAddress c) -> fflow::pointprec_t {
+         return proto_command_ack_handler(a, b, c);
+       }},
+  };
 };
 
 }  // namespace mutelemetry_network

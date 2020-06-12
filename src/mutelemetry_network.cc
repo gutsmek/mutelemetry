@@ -14,11 +14,33 @@ using namespace fflow;
 using namespace mutelemetry_network;
 using namespace mutelemetry_tools;
 
-message_handler_note_t mutelemetry_proto_handlers[] = {
-    {fflow::proto::FLOWPROTO_ASYNC,
-     [](uint8_t *ptr, size_t len,
-        fflow::SparseAddress sa) -> fflow::pointprec_t {
-       assert(0);
+//#define MAVPAYLOAD_TO_MAVMSG(payload) \
+//  ((mavlink_message_t *)(payload - offsetof(mavlink_message_t, payload64)))
+
+fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
+    uint8_t *payload, size_t len, fflow::SparseAddress sa) {
+  mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
+  mavlink_command_long_t lcmd;
+  mavlink_msg_command_long_decode(rxmsg, &lcmd);
+
+  // ACKNOWLEDGE
+  mavlink_command_ack_t ack;
+  ack.command = lcmd.command;
+  ack.result = MAV_RESULT_ACCEPTED;
+
+  std::shared_ptr<mavlink_message_t> msg =
+      std::make_shared<mavlink_message_t>();
+  mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
+                                 &(*msg), &ack);
+  uint32_t targetMcastId = sa.group_id;
+  uint32_t targetCompId = sa.instance_id;
+  fflow::post_function<void>(
+      [msg, targetMcastId, targetCompId, this](void) -> void {
+        roster_->sendmavmsg(
+            *msg, {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
+      });
+
+  assert(0);
 #if 0
        const DataHeader *hdr = reinterpret_cast<const DataHeader *>(ptr);
        if (isValidHashType(hdr->type_)) {
@@ -27,9 +49,16 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
          cout << "$$$ Invalid data received $$$" << endl;
        }
 #endif
-       return 1.0;
-     }},
-};
+  return 1.0;
+}
+
+fflow::pointprec_t MutelemetryStreamer::proto_command_ack_handler(
+    uint8_t *payload, size_t len, fflow::SparseAddress sa) {
+  mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
+  mavlink_command_ack_t ack;
+  mavlink_msg_command_ack_decode(rxmsg, &ack);
+  return 1.0;
+}
 
 bool MutelemetryStreamer::init(
     RouteSystemPtr roster,
@@ -38,9 +67,7 @@ bool MutelemetryStreamer::init(
   if (running_ || roster_ != nullptr || data_queue_ != nullptr) return false;
   if (roster == nullptr || data_queue == nullptr) return false;
 
-  roster->add_protocol2(mutelemetry_proto_handlers,
-                        sizeof(mutelemetry_proto_handlers) /
-                            sizeof(mutelemetry_proto_handlers[0]));
+  roster->add_protocol2(proto_table, proto_table_len);
 
   roster_ = roster;
   data_queue_ = data_queue;
