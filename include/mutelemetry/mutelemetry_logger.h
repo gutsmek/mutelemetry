@@ -7,6 +7,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <stack>
 #include <string>
 #include <vector>
 
@@ -27,7 +28,7 @@ class MutelemetryLogger {
       bool is_full = false;
       size_t data_size = dp->size();
       if (data_size + data_size_ >= max_data_size_) is_full = true;
-      if (has_data()) add_started_ = std::chrono::system_clock::now();
+      if (!has_data()) add_started_ = std::chrono::system_clock::now();
       data_size_ += data_size;
       buffer_.emplace_back(dp);
       return is_full;
@@ -99,6 +100,7 @@ class MutelemetryLogger {
     if (file_.is_open()) file_.flush();
   }
 
+  void main_loop();
   void start_io_worker(DataBuffer *, bool do_flush = false);
 
  private:
@@ -108,9 +110,10 @@ class MutelemetryLogger {
   std::string filename_;
   std::ofstream file_;
   std::array<DataBuffer, 8> mem_pool_;
-  mutelemetry_tools::ConcStack<DataBuffer *> pool_stacked_index_;
+  std::stack<DataBuffer *> pool_stacked_index_;
+  std::mutex idx_mutex_;
   DataBuffer *curr_idx_;
-  mutable std::mutex mutex_;
+  mutable std::mutex io_mutex_;
 };
 
 }  // namespace mutelemetry_logger

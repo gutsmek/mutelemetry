@@ -11,9 +11,9 @@
 #pragma once
 
 #include <muroute/subsystem.h>
-#include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -37,25 +37,29 @@ class MuTelemetry {
 
   template <typename T>
   class ID {
-    std::atomic<T> id_cntr_;
+    T id_cntr_;
+    std::mutex ids_mutex_;
     std::unordered_map<std::string, T> ids_;
 
    public:
     ID() : id_cntr_(0) {}
 
     ID(const ID<T> &id) {
-      id_cntr_ = id.id_cntr_.load();
+      std::lock_guard<std::mutex> guard(ids_mutex_);
+      id_cntr_ = id.id_cntr_;
       ids_ = id.ids_;
     }
 
     ID<T> &operator=(const ID<T> &that) {
       if (&that == this) return *this;
-      id_cntr_ = that.id_cntr_.load();
+      std::lock_guard<std::mutex> guard(ids_mutex_);
+      id_cntr_ = that.id_cntr_;
       ids_ = that.ids_;
       return *this;
     }
 
     inline T get_id(const std::string &name) {
+      std::lock_guard<std::mutex> guard(ids_mutex_);
       if (ids_.find(name) == ids_.end()) ids_[name] = id_cntr_++;
       return ids_[name];
     }
@@ -69,6 +73,7 @@ class MuTelemetry {
 
   ID<uint16_t> msg_id_;
   std::unordered_map<uint16_t, ID<uint8_t>> multi_id_;
+  std::mutex multi_id_mutex_;
 
   mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> log_queue_;
   mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> net_queue_;
@@ -87,8 +92,10 @@ class MuTelemetry {
   }
 
   inline uint8_t get_multi_id(uint16_t msg_id, const std::string &inst_name) {
+    multi_id_mutex_.lock();
     if (multi_id_.find(msg_id) == multi_id_.end())
       multi_id_[msg_id] = ID<uint8_t>{};
+    multi_id_mutex_.unlock();
     return multi_id_[msg_id].get_id(inst_name);
   }
 

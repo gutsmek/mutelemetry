@@ -51,8 +51,7 @@ void MutelemetryLogger::start_io_worker(DataBuffer *dbp, bool do_flush) {
   post_function<void>([dbp, do_flush, this](void) -> void {
     SerializedData result = dbp->data();
     {
-      // WARNING: why do we need it if post_function calls are serialized?
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::lock_guard<std::mutex> lock(io_mutex_);
       file_.write(reinterpret_cast<const char *>(result.data()), result.size());
     }
     if (file_.bad()) {
@@ -61,40 +60,61 @@ void MutelemetryLogger::start_io_worker(DataBuffer *dbp, bool do_flush) {
     } else if (do_flush)
       flush();
     dbp->clear();
-    pool_stacked_index_.push(dbp);
+    {
+      std::lock_guard<std::mutex> lock(idx_mutex_);
+      pool_stacked_index_.push(dbp);
+    }
   });
 }
 
-void MutelemetryLogger::start() {
-  add_periodic<void>(([&](void) -> void {
-                       while (running_ && !data_queue_->empty()) {
-                         auto dp = data_queue_->dequeue();
-                         assert(dp != nullptr);
-                         assert(dp->size() <= DataBuffer::max_data_size_);
+void MutelemetryLogger::main_loop() {
+  if (!running_) return;
+
+  while (!data_queue_->empty()) {
+    auto dp = data_queue_->dequeue();
+    assert(dp != nullptr);
+    assert(dp->size() <= DataBuffer::max_data_size_);
 
 #ifdef TEST_PARSE_VALIDITY
-                         const uint8_t *buffer = dp->data();
-                         if (!check_ulog_valid(buffer)) {
-                           LOG(ERROR) << "Validity check failed\n";
-                           assert(0);
-                         }
+    const uint8_t *buffer = dp->data();
+    if (!check_ulog_valid(buffer)) {
+      LOG(ERROR) << "Validity check failed\n";
+      assert(0);
+    }
 #endif
 
-                         bool is_full = curr_idx_->add(dp);
-                         if (is_full) {
-                           start_io_worker(curr_idx_);
-                           curr_idx_ = pool_stacked_index_.pop();
-                           assert(curr_idx_->size() == 0);
-                         }
-                       }
+    DataBuffer *io_idx = curr_idx_;
+    bool is_full = curr_idx_->add(dp);
+    if (is_full) {
+      if (!idx_mutex_.try_lock()) continue;
+      if (pool_stacked_index_.size() == 0) {
+        idx_mutex_.unlock();
+        return;
+      }
+      curr_idx_ = pool_stacked_index_.top();
+      assert(curr_idx_->size() == 0);
+      pool_stacked_index_.pop();
+      idx_mutex_.unlock();
+      start_io_worker(io_idx);
+    }
+  }
 
-                       if (curr_idx_->can_start_io()) {
-                         start_io_worker(curr_idx_, true);
-                         curr_idx_ = pool_stacked_index_.pop();
-                         assert(curr_idx_->size() == 0);
-                       }
-                     }),
-                     0.000001, 0.1);
+  DataBuffer *io_idx = curr_idx_;
+  if (io_idx->can_start_io()) {
+    if (!idx_mutex_.try_lock()) return;
+    if (pool_stacked_index_.size() == 0) {
+      idx_mutex_.unlock();
+      return;
+    }
+    curr_idx_ = pool_stacked_index_.top();
+    assert(curr_idx_->size() == 0);
+    pool_stacked_index_.pop();
+    idx_mutex_.unlock();
+    start_io_worker(io_idx, true);
+  }
+}
 
+void MutelemetryLogger::start() {
+  add_periodic<void>(([&](void) -> void { main_loop(); }), 0.000001, 0.1);
   running_ = true;
 }
