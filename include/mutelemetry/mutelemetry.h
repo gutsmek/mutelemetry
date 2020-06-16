@@ -128,7 +128,7 @@ class MuTelemetry {
                        const std::string &, uint64_t);
 
  public:
-  static bool init(fflow::RouteSystemPtr roster = nullptr);
+  static bool init(fflow::RouteSystemPtr roster = nullptr, bool rt = true);
   static inline MuTelemetry &getInstance() { return instance_; }
 
  public:

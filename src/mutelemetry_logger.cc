@@ -5,7 +5,7 @@
 #include <cassert>
 #include <thread>
 
-//#define TEST_PARSE_VALIDITY
+//#define CHECK_PARSE_VALIDITY_LOGGER
 
 using namespace std;
 using namespace fflow;
@@ -75,10 +75,10 @@ void MutelemetryLogger::main_loop() {
     assert(dp != nullptr);
     assert(dp->size() <= DataBuffer::max_data_size_);
 
-#ifdef TEST_PARSE_VALIDITY
+#ifdef CHECK_PARSE_VALIDITY_LOGGER
     const uint8_t *buffer = dp->data();
     if (!check_ulog_valid(buffer)) {
-      LOG(ERROR) << "Validity check failed\n";
+      LOG(ERROR) << "Validity check failed";
       assert(0);
     }
 #endif

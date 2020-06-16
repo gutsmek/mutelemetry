@@ -56,7 +56,7 @@ bool MuTelemetry::read_config(const string &file) {
   return res;
 }
 
-bool MuTelemetry::init(fflow::RouteSystemPtr roster) {
+bool MuTelemetry::init(fflow::RouteSystemPtr roster, bool rt) {
   MuTelemetry &instance = getInstance();
   if (instance.start_timestamp_ != 0) {
     LOG(INFO) << "MuTelemetry already initialized\n";
@@ -70,7 +70,7 @@ bool MuTelemetry::init(fflow::RouteSystemPtr roster) {
           instance.streamer_.init(roster, &instance.net_queue_);
       if (instance.with_network_) {
         LOG(INFO) << "Starting MuTelemetry streaming\n";
-        instance.streamer_.run();
+        instance.streamer_.run(rt);
       }
     }
 

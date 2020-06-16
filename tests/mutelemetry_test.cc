@@ -277,7 +277,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  MuTelemetry::init(roster);
+  bool realtime = false;  // don't run telemetry discard thread
+  MuTelemetry::init(roster, realtime);
 
   MuTelemetry &mt = MuTelemetry::getInstance();
 
