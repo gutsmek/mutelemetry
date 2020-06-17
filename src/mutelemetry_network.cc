@@ -9,7 +9,7 @@
 
 #include "mutelemetry/mutelemetry_tools.h"
 
-#define CHECK_PARSE_VALIDITY_STREAMER
+//#define CHECK_PARSE_VALIDITY_STREAMER
 
 using namespace std;
 using namespace fflow;
@@ -44,20 +44,22 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
   mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
                                  &(*msg), &ack);
 
-  fflow::post_function<void>(
-      [msg, targetMcastId, targetCompId, this](void) -> void {
-        roster_->sendmavmsg(
-            *msg, {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
-        if (state_ == StreamerState::STATE_INIT) {
-          // FIXME: temporal workaround for connection establishment
-          if (++try_connect_cntr_ == 2) {
-            target_system_ = targetMcastId;
-            target_component_ = targetCompId;
-            set_state(state_, StreamerState::STATE_CONNECTED);
-            LOG(INFO) << "Connection established, state changed to " << state_;
-          }
-        }
-      });
+  fflow::post_function<void>([msg, targetMcastId, targetCompId,
+                              this](void) -> void {
+    roster_->sendmavmsg(*msg,
+                        {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
+    if (state_ == StreamerState::STATE_INIT) {
+      ++try_connect_cntr_;
+      LOG(INFO) << ">>>>> Connection attempt " << uint32_t(try_connect_cntr_);
+      // FIXME: temporal workaround for connection establishment
+      // if (try_connect_cntr_ == 2) {
+      target_system_ = targetMcastId;
+      target_component_ = targetCompId;
+      set_state(state_, StreamerState::STATE_CONNECTED);
+      LOG(INFO) << "Connection established, state changed to " << state_;
+      //}
+    }
+  });
 
   return 1.0;
 }
@@ -136,6 +138,9 @@ bool MutelemetryStreamer::send_ulog_ack(const uint8_t *data, size_t data_len,
     return false;
   }
 
+  // LOG(INFO) << "Send ULog definition message of size=" << data_len
+  //          << " with seq=" << uint32_t(seq);
+
   mavlink_message_t msg;
   uint16_t msg_len = mavlink_msg_logging_data_acked_pack(
       roster_->getMcastId(), roster_->getMcompId(), &msg, target_system_,
@@ -184,7 +189,7 @@ void MutelemetryStreamer::sync_loop() {
   while (seq_ < defs_sz) {
     StreamerState state = state_.load();
 
-    // LOG(INFO) << "State is " << state;
+    LOG(INFO) << "State is " << state;
 
     switch (state) {
       case StreamerState::STATE_CONNECTED:
@@ -262,6 +267,7 @@ void MutelemetryStreamer::discard_loop() {
 void MutelemetryStreamer::main_loop() {
   if (!running_) return;
 
+  LOG(INFO) << "State is " << state_;
   assert(state_ == StreamerState::STATE_RUNNING);
 
   // LOG(INFO) << "Main loop started";
@@ -279,10 +285,10 @@ void MutelemetryStreamer::main_loop() {
 
     // send ULog data without acknowledgement
     if (!send_ulog(buffer, dp->size())) {
-      LOG(INFO) << "ULog data won't fit into mavlink buffer, skipping";
+      // LOG(INFO) << "ULog data won't fit into mavlink buffer, skipping";
+    } else {
+      LOG(INFO) << "ULog packet " << ++send_cntr_ << " sent";
     }
-
-    // LOG(INFO) << "ULog data sent ";
   }
   // LOG(INFO) << "Main loop exited";
 }

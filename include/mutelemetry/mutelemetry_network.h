@@ -6,9 +6,6 @@
 #include "muroute/mavlink2/common/mavlink.h"
 #include "mutelemetry/mutelemetry_tools.h"
 
-//#define MAVPAYLOAD_TO_MAVMSG(payload) \
-//  ((mavlink_message_t *)(payload - offsetof(mavlink_message_t, payload64)))
-
 namespace mutelemetry_network {
 
 class MutelemetryStreamer {
@@ -49,7 +46,8 @@ class MutelemetryStreamer {
         target_system_(0),
         target_component_(0),
         try_connect_cntr_(0),
-        sync_timeout_(0) {}
+        sync_timeout_(0),
+        send_cntr_(0) {}
   MutelemetryStreamer(const MutelemetryStreamer &) = delete;
   MutelemetryStreamer &operator=(const MutelemetryStreamer &) = delete;
 
@@ -89,6 +87,7 @@ class MutelemetryStreamer {
   uint8_t target_component_;
   uint8_t try_connect_cntr_;
   uint16_t sync_timeout_;
+  std::atomic<uint64_t> send_cntr_;
 
   static constexpr size_t proto_table_len = 2;
 
