@@ -2,9 +2,9 @@
 #include <muroute/subsystem.h>
 #include <mutelemetry/mutelemetry.h>
 #include <atomic>
+#include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
 #include <iostream>
-
 #include "muroute/mavlink2/common/mavlink.h"
 
 using namespace std;
@@ -153,12 +153,8 @@ int main(int argc, char **argv) {
   options_description options("Mutelemetry client allowed options");
   options.add_options()("help", "Print help")
       //
-      ("iface", value<std::string>()->default_value(""),
-       "Interface to use for logging")
-      //
-      ("port",
-       value<uint32_t>()->default_value(MutelemetryStreamer::get_port()),
-       "UDP port");
+      ("edge-transport", value<std::string>()->default_value("EdgeUdp:lo:7788"),
+       "Transport type (default EdgeUdp)");
 
   variables_map varmap;
   store(parse_command_line(argc, argv, options, command_line_style::unix_style),
@@ -170,20 +166,27 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const string iface = varmap["iface"].as<string>();
-  const uint32_t port = varmap["port"].as<uint32_t>();
+  const string trstr = varmap["edge-transport"].as<string>();
 
-  shared_ptr<AbstractEdgeInterface> udptr = createEdgeFunctionByName("EdgeUdp");
+  std::vector<std::string> vstr;
+  boost::split(vstr, trstr, boost::is_any_of(":"));
 
-  bool open_res = iface == ""
-                      ? (dynamic_cast<EdgeUdp *>(udptr.get()))->open(port)
-                      : udptr->open(iface, port);
-  if (!open_res) {
-    cout << "Bad interface" << endl;
+  std::shared_ptr<fflow::AbstractEdgeInterface> trptr =
+      fflow::createEdgeFunctionByName(vstr[0]);
+  uint32_t portn = std::stoi(vstr[2]);
+  std::string iface = vstr[1];
+
+  std::cerr << " Adding transport type:" << vstr[0] << " at " << iface
+            << " iparm: " << portn;
+
+  if (!trptr->open(iface, portn)) {
+    std::cerr << " ERROR! (see log files for more info)" << std::endl;
     return 1;
+  } else {
+    std::cerr << " OK!" << std::endl;
   }
 
-  setup_roster(udptr);
+  setup_roster(trptr);
   connect();
   pause();
 
