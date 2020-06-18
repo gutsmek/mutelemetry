@@ -6,7 +6,6 @@
 #include <boost/program_options.hpp>
 #include <iostream>
 #include <set>
-
 #include "muroute/mavlink2/common/mavlink.h"
 
 using namespace std;
