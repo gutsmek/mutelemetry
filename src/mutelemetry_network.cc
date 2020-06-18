@@ -9,8 +9,6 @@
 
 #include "mutelemetry/mutelemetry_tools.h"
 
-//#define CHECK_PARSE_VALIDITY_STREAMER
-
 using namespace std;
 using namespace fflow;
 using namespace mutelemetry_network;
@@ -277,9 +275,12 @@ void MutelemetryStreamer::main_loop() {
 
     const uint8_t *buffer = dp->data();
 #ifdef CHECK_PARSE_VALIDITY_STREAMER
-    if (!check_ulog_valid(buffer)) {
-      LOG(ERROR) << "Validity check failed for data";
-      assert(0);
+    {
+      std::lock_guard<std::mutex> lock(parser_mutex_);
+      if (!check_ulog_valid(buffer)) {
+        LOG(ERROR) << "Validity check failed for data";
+        assert(0);
+      }
     }
 #endif
 

@@ -58,17 +58,10 @@ bool MutelemetryParser::parse(const uint8_t *buffer) {
 
     case STATE_DEFINITION:
       new_state = parse_definition(buffer);
-#ifndef RELAXED_STATE_MACHINE
-      assert(new_state == STATE_DEFINITION ||
-             new_state == STATE_DEFINITION_OR_DATA);
-#endif
       break;
 
     case STATE_DEFINITION_OR_DATA:
       new_state = parse_data(buffer);
-#ifndef RELAXED_STATE_MACHINE
-      assert(new_state == STATE_DEFINITION_OR_DATA);
-#endif
       break;
 
     case STATE_INVALID:

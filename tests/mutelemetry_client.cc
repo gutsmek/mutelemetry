@@ -4,6 +4,7 @@
 #include <atomic>
 #include <boost/program_options.hpp>
 #include <iostream>
+#include <set>
 
 #include "muroute/mavlink2/common/mavlink.h"
 
@@ -17,6 +18,7 @@ using namespace mutelemetry_tools;
 void send_mavlink_message(mavlink_message_t &msg, bool bcast);
 
 RouteSystemPtr roster = nullptr;
+set<uint16_t> sequence_keeper;
 atomic<bool> is_connected(false);
 uint64_t msg_cntr = 0;
 
@@ -56,12 +58,11 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
 
        cout << "ULog message num " << ++msg_cntr << " received" << endl;
        const uint8_t *buffer = logd.data;
-       if (!check_ulog_valid(buffer)) {
+       if (!check_ulog_valid(buffer))
          cout << "Validity check failed for data" << endl;
-         assert(0);
-       }
 
        // TODO: send to stdout using parser user-defined handlers
+       // and/or flush to disk
 
        return 1.0;
      }},
@@ -72,14 +73,25 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        mavlink_logging_data_acked_t logda;
        mavlink_msg_logging_data_acked_decode(rxmsg, &logda);
 
+       uint16_t sequence = logda.sequence;
+       bool is_new = false;
+       if (sequence_keeper.find(sequence) == sequence_keeper.end()) {
+         sequence_keeper.insert(sequence);
+         is_new = true;
+       }
+
        const uint8_t *buffer = logda.data;
-       if (!check_ulog_valid(buffer)) {
-         cout << "Validity check failed for definitions" << endl;
-         assert(0);
+       if (is_new) {
+         if (!check_ulog_valid(buffer)) {
+           cout << "Validity check failed for definitions" << endl;
+           assert(0);
+         } else {
+           // TODO: flush to disk
+         }
        }
 
        mavlink_logging_ack_t logging_ack;
-       logging_ack.sequence = logda.sequence;
+       logging_ack.sequence = sequence;
        logging_ack.target_system = sa.group_id;
        logging_ack.target_component = sa.instance_id;
 

@@ -6,6 +6,8 @@
 #include "muroute/mavlink2/common/mavlink.h"
 #include "mutelemetry/mutelemetry_tools.h"
 
+#define CHECK_PARSE_VALIDITY_STREAMER
+
 namespace mutelemetry_network {
 
 class MutelemetryStreamer {
@@ -75,6 +77,10 @@ class MutelemetryStreamer {
   std::atomic<StreamerState> state_;
   size_t seq_;
   std::vector<mutelemetry_tools::SerializedDataPtr> definitions_;
+#ifdef CHECK_PARSE_VALIDITY_STREAMER
+  // only for debug since ULog parser is not thread-safe
+  std::mutex parser_mutex_;
+#endif
 
   // protocol definition
  private:
