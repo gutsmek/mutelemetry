@@ -2,9 +2,10 @@
 #include <muroute/subsystem.h>
 #include <mutelemetry/mutelemetry.h>
 #include <atomic>
+#include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
 #include <iostream>
-
+#include <set>
 #include "muroute/mavlink2/common/mavlink.h"
 
 using namespace std;
@@ -17,6 +18,7 @@ using namespace mutelemetry_tools;
 void send_mavlink_message(mavlink_message_t &msg, bool bcast);
 
 RouteSystemPtr roster = nullptr;
+set<uint16_t> sequence_keeper;
 atomic<bool> is_connected(false);
 uint64_t msg_cntr = 0;
 
@@ -62,6 +64,7 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        }
 
        // TODO: send to stdout using parser user-defined handlers
+       // and/or flush to disk
 
        return 1.0;
      }},
@@ -72,14 +75,25 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        mavlink_logging_data_acked_t logda;
        mavlink_msg_logging_data_acked_decode(rxmsg, &logda);
 
+       uint16_t sequence = logda.sequence;
+       bool is_new = false;
+       if (sequence_keeper.find(sequence) == sequence_keeper.end()) {
+         sequence_keeper.insert(sequence);
+         is_new = true;
+       }
+
        const uint8_t *buffer = logda.data;
-       if (!check_ulog_valid(buffer)) {
-         cout << "Validity check failed for definitions" << endl;
-         assert(0);
+       if (is_new) {
+         if (!check_ulog_valid(buffer)) {
+           cout << "Validity check failed for definitions" << endl;
+           assert(0);
+         } else {
+           // TODO: flush to disk
+         }
        }
 
        mavlink_logging_ack_t logging_ack;
-       logging_ack.sequence = logda.sequence;
+       logging_ack.sequence = sequence;
        logging_ack.target_system = sa.group_id;
        logging_ack.target_component = sa.instance_id;
 
@@ -153,12 +167,8 @@ int main(int argc, char **argv) {
   options_description options("Mutelemetry client allowed options");
   options.add_options()("help", "Print help")
       //
-      ("iface", value<std::string>()->default_value(""),
-       "Interface to use for logging")
-      //
-      ("port",
-       value<uint32_t>()->default_value(MutelemetryStreamer::get_port()),
-       "UDP port");
+      ("edge-transport", value<std::string>()->default_value("EdgeUdp:lo:7788"),
+       "Transport type (default EdgeUdp)");
 
   variables_map varmap;
   store(parse_command_line(argc, argv, options, command_line_style::unix_style),
@@ -170,20 +180,27 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const string iface = varmap["iface"].as<string>();
-  const uint32_t port = varmap["port"].as<uint32_t>();
+  const string trstr = varmap["edge-transport"].as<string>();
 
-  shared_ptr<AbstractEdgeInterface> udptr = createEdgeFunctionByName("EdgeUdp");
+  std::vector<std::string> vstr;
+  boost::split(vstr, trstr, boost::is_any_of(":"));
 
-  bool open_res = iface == ""
-                      ? (dynamic_cast<EdgeUdp *>(udptr.get()))->open(port)
-                      : udptr->open(iface, port);
-  if (!open_res) {
-    cout << "Bad interface" << endl;
+  std::shared_ptr<fflow::AbstractEdgeInterface> trptr =
+      fflow::createEdgeFunctionByName(vstr[0]);
+  uint32_t portn = std::stoi(vstr[2]);
+  std::string iface = vstr[1];
+
+  std::cerr << " Adding transport type:" << vstr[0] << " at " << iface
+            << " iparm: " << portn;
+
+  if (!trptr->open(iface, portn)) {
+    std::cerr << " ERROR! (see log files for more info)" << std::endl;
     return 1;
+  } else {
+    std::cerr << " OK!" << std::endl;
   }
 
-  setup_roster(udptr);
+  setup_roster(trptr);
   connect();
   pause();
 

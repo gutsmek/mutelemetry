@@ -268,8 +268,8 @@ bool MuTelemetry::store_data_intl(const vector<uint8_t> &data,
                                   const string &annotation,
                                   uint64_t timestamp) {
   if (!is_enabled()) return true;
-  LOG(INFO) << "[" << this_thread::get_id() << "]:"
-            << " Annotation=\'" << annotation << "\' Type=" << type_name;
+  //  LOG(INFO) << "[" << this_thread::get_id() << "]:"
+  //          << " Annotation=\'" << annotation << "\' Type=" << type_name;
   bool res = true;
 
   ULogMessageA mA = {};

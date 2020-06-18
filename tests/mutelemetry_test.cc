@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
 #include <future>
 #include <sstream>
@@ -239,12 +240,8 @@ int main(int argc, char **argv) {
   options_description options("Allowed options");
   options.add_options()("help", "Print help")
       //
-      ("iface", value<std::string>()->default_value(""),
-       "Interface to use with ULog Streamer")
-      //
-      ("port",
-       value<uint32_t>()->default_value(MutelemetryStreamer::get_port()),
-       "UDP port of ULog Streamer")
+      ("edge-transport", value<std::string>()->default_value("EdgeUdp:lo:7788"),
+       "Transport type (default EdgeUdp)")
       //
       ("threads", value<uint32_t>()->default_value(params.size()),
        "Number of threads to use in test");
@@ -259,25 +256,37 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const string iface = varmap["iface"].as<string>();
-  const uint32_t port = varmap["port"].as<uint32_t>();
+  const string trstr = varmap["edge-transport"].as<string>();
   const uint32_t n_threads = varmap["threads"].as<uint32_t>();
 
   RouteSystemPtr roster = nullptr;
   shared_ptr<AbstractEdgeInterface> udptr = nullptr;
 
-  if (iface != "") {
-    udptr = createEdgeFunctionByName("EdgeUdp");
-    if (udptr->open(iface, port)) {
-      roster = RouteSystem::createRouteSys();
-      roster->setMcastId(1);  // ?
-      roster->setMcompId(1);  // ?
-      roster->add_edge_transport(udptr);
-      // protocol will be added by MuTelemetry
+  roster = RouteSystem::createRouteSys();
+  roster->setMcastId(1);  // ?
+  roster->setMcompId(1);  // ?
+
+  {
+    std::vector<std::string> vstr;
+    boost::split(vstr, trstr, boost::is_any_of(":"));
+
+    std::shared_ptr<fflow::AbstractEdgeInterface> trptr =
+        fflow::createEdgeFunctionByName(vstr[0]);
+    uint32_t portn = std::stoi(vstr[2]);
+    std::string iface = vstr[1];
+
+    std::cerr << " Adding transport type:" << vstr[0] << " at " << iface
+              << " iparm: " << portn;
+
+    if (!trptr->open(iface, portn)) {
+      std::cerr << " ERROR! (see log files for more info)" << std::endl;
+    } else {
+      std::cerr << " OK!" << std::endl;
+      roster->add_edge_transport(trptr);
     }
   }
 
-  bool realtime = false;  // don't run telemetry discard thread
+  bool realtime = false;  // don't run telemetry discard thread for test
   MuTelemetry::init(roster, realtime);
 
   MuTelemetry &mt = MuTelemetry::getInstance();
