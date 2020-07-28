@@ -23,7 +23,11 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
   uint32_t targetMcastId = sa.group_id;
   uint32_t targetCompId = sa.instance_id;
 
-  assert(targetMcastId == lcmd.target_system);
+  //  LOG(INFO) << "Command (telem) : " << targetMcastId << "  to "
+  //            << uint32_t(lcmd.target_system) << " cmd:" <<
+  //            uint32_t(lcmd.command)
+  //            << " from:" << uint32_t(targetCompId) << std::endl;
+  //  assert(targetMcastId == lcmd.target_system);
   // assert(targetCompId == lcmd.target_component);
 
   // ACKNOWLEDGE
@@ -31,33 +35,34 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
   ack.command = lcmd.command;
   ack.result = MAV_RESULT_ACCEPTED;
   if (state_ == StreamerState::STATE_INIT &&
-      lcmd.command == MAV_CMD_LOGGING_START)
+      lcmd.command == MAV_CMD_LOGGING_START) {
     ack.result_param2 = MutelemetryStreamer::get_port();
-  ack.progress = ack.result;
-  ack.target_system = targetMcastId;    // lcmd.target_system;
-  ack.target_component = targetCompId;  // lcmd.target_component;
+    ack.progress = ack.result;
+    ack.target_system = targetMcastId;    // lcmd.target_system;
+    ack.target_component = targetCompId;  // lcmd.target_component;
 
-  std::shared_ptr<mavlink_message_t> msg =
-      std::make_shared<mavlink_message_t>();
-  mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
-                                 &(*msg), &ack);
+    std::shared_ptr<mavlink_message_t> msg =
+        std::make_shared<mavlink_message_t>();
+    mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
+                                   &(*msg), &ack);
 
-  fflow::post_function<void>([msg, targetMcastId, targetCompId,
-                              this](void) -> void {
-    roster_->sendmavmsg(*msg,
-                        {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
-    if (state_ == StreamerState::STATE_INIT) {
-      ++try_connect_cntr_;
-      LOG(INFO) << ">>>>> Connection attempt " << uint32_t(try_connect_cntr_);
-      // FIXME: temporal workaround for connection establishment
-      // if (try_connect_cntr_ == 2) {
-      target_system_ = targetMcastId;
-      target_component_ = targetCompId;
-      set_state(state_, StreamerState::STATE_CONNECTED);
-      LOG(INFO) << "Connection established, state changed to " << state_;
-      //}
-    }
-  });
+    fflow::post_function<void>([msg, targetMcastId, targetCompId,
+                                this](void) -> void {
+      roster_->sendmavmsg(
+          *msg, {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
+      if (state_ == StreamerState::STATE_INIT) {
+        ++try_connect_cntr_;
+        LOG(INFO) << ">>>>> Connection attempt " << uint32_t(try_connect_cntr_);
+        // FIXME: temporal workaround for connection establishment
+        // if (try_connect_cntr_ == 2) {
+        target_system_ = targetMcastId;
+        target_component_ = targetCompId;
+        set_state(state_, StreamerState::STATE_CONNECTED);
+        LOG(INFO) << "Connection established, state changed to " << state_;
+        //}
+      }
+    });
+  }
 
   return 1.0;
 }
@@ -187,7 +192,7 @@ void MutelemetryStreamer::sync_loop() {
   while (seq_ < defs_sz) {
     StreamerState state = state_.load();
 
-    LOG(INFO) << "State is " << state;
+    //    LOG(INFO) << "State is " << state;
 
     switch (state) {
       case StreamerState::STATE_CONNECTED:
