@@ -1,3 +1,4 @@
+#include <muqueue/erqperiodic.h>
 #include <muroute/funudp.h>
 #include <muroute/subsystem.h>
 #include <mutelemetry/mutelemetry.h>
@@ -15,11 +16,14 @@ using namespace mutelemetry;
 using namespace mutelemetry_network;
 using namespace mutelemetry_tools;
 
-void send_mavlink_message(mavlink_message_t &msg, bool bcast);
+void send_mavlink_message(mavlink_message_t &, bool);
+void command_start_logging(bool);
+void command_stop_logging();
 
 RouteSystemPtr roster = nullptr;
 set<uint16_t> sequence_keeper;
-atomic<bool> is_connected(false);
+atomic<bool> is_start_ack(false);
+atomic<bool> is_stop_ack(false);
 uint64_t msg_cntr = 0;
 
 message_handler_note_t mutelemetry_proto_handlers[] = {
@@ -40,11 +44,16 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        mavlink_command_ack_t ack;
        mavlink_msg_command_ack_decode(rxmsg, &ack);
 
-       if (ack.result == MAV_RESULT_ACCEPTED &&
+       if (/* ack.result == MAV_RESULT_ACCEPTED && */
            ack.result_param2 == MutelemetryStreamer::get_port()) {
-         cout << "Connected to server" << endl;
-         // assert(is_connected);
-         is_connected = true;
+         if (ack.command == MAV_CMD_LOGGING_START) {
+           cout << "Starting ULog stream from server" << endl;
+           is_start_ack = true;
+         } else if (ack.command == MAV_CMD_LOGGING_STOP) {
+           // cout << "Loggin was stopped" << endl;
+           is_start_ack = false;
+           is_stop_ack = true;
+         }
        }
 
        return 1.0;
@@ -117,7 +126,7 @@ void send_mavlink_message(mavlink_message_t &msg, bool bcast) {
   roster->sendmavmsg(msg, {a});
 }
 
-void command_start_logging() {
+void command_start_logging(bool bcast) {
   mavlink_message_t msg;
 
   int sys_id = roster->getMcastId();
@@ -127,20 +136,20 @@ void command_start_logging() {
                                 MAV_CMD_LOGGING_START, 0, 0.0, 0.0, 0.0, 0.0,
                                 0.0, 0.0, 0.0);
 
-  send_mavlink_message(msg, true);
+  send_mavlink_message(msg, bcast);
 }
 
 // FIXME:
 void connect() {
-  command_start_logging();
+  command_start_logging(true);
   sleep(1);
-  while (!is_connected) {
-    command_start_logging();
+  while (!is_start_ack) {
+    command_start_logging(true);
     sleep(1);
   }
 }
 
-void command_stop_logging(RouteSystemPtr roster) {
+void command_stop_logging() {
   mavlink_message_t msg;
 
   int sys_id = roster->getMcastId();
@@ -161,6 +170,23 @@ void setup_roster(shared_ptr<AbstractEdgeInterface> udptr) {
   roster->add_protocol2(mutelemetry_proto_handlers,
                         sizeof(mutelemetry_proto_handlers) /
                             sizeof(mutelemetry_proto_handlers[0]));
+}
+
+void test_stop_start() {
+  post_function<void>([&](void) -> void {
+    while (1) {
+      while (!is_stop_ack) {
+        command_stop_logging();
+        this_thread::sleep_for(chrono::milliseconds(50));
+      }
+      is_stop_ack = false;
+      // cout << "Restartin log stream!" << endl;
+      while (!is_start_ack) {
+        command_start_logging(false);
+        this_thread::sleep_for(chrono::milliseconds(50));
+      }
+    }
+  });
 }
 
 int main(int argc, char **argv) {
@@ -202,6 +228,7 @@ int main(int argc, char **argv) {
 
   setup_roster(trptr);
   connect();
+  // test_stop_start();
   pause();
 
   return 0;

@@ -59,7 +59,6 @@ bool MutelemetryParser::parse(const uint8_t *buffer) {
     case STATE_DEFINITION:
       new_state = parse_definition(buffer);
       break;
-
     case STATE_DEFINITION_OR_DATA:
       new_state = parse_data(buffer);
       break;
@@ -432,6 +431,12 @@ MutelemetryParser::ParseState MutelemetryParser::parse_definition(
       break;
     case ULogMessageType::A:
       next_state = parse_add(message, hdr->size_);
+      if (next_state == STATE_DEFINITION_OR_DATA) {
+        hdr = reinterpret_cast<const ULogMessageHeader *>(message + hdr->size_);
+        message = reinterpret_cast<const uint8_t *>(hdr) + sizeof(*hdr);
+        if (ULogMessageType(hdr->type_) != ULogMessageType::D) break;
+        next_state = parse_data(message, hdr->size_);
+      }
       break;
     default:
       break;
@@ -529,7 +534,10 @@ MutelemetryParser::ParseState MutelemetryParser::parse_data(
   switch (ULogMessageType(hdr->type_)) {
     case ULogMessageType::A:
       next_state = parse_add(message, hdr->size_);
-      break;
+      if (next_state != STATE_DEFINITION_OR_DATA) break;
+      hdr = reinterpret_cast<const ULogMessageHeader *>(message + hdr->size_);
+      message = reinterpret_cast<const uint8_t *>(hdr) + sizeof(*hdr);
+      if (ULogMessageType(hdr->type_) != ULogMessageType::D) break;
     case ULogMessageType::D:
       next_state = parse_data(message, hdr->size_);
       break;

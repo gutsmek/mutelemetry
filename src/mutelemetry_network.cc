@@ -23,45 +23,51 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
   uint32_t targetMcastId = sa.group_id;
   uint32_t targetCompId = sa.instance_id;
 
-  //  LOG(INFO) << "Command (telem) : " << targetMcastId << "  to "
-  //            << uint32_t(lcmd.target_system) << " cmd:" <<
-  //            uint32_t(lcmd.command)
-  //            << " from:" << uint32_t(targetCompId) << std::endl;
-  //  assert(targetMcastId == lcmd.target_system);
-  // assert(targetCompId == lcmd.target_component);
+  // skip all except start/stop commands
+  if (!(lcmd.command == MAV_CMD_LOGGING_START ||
+        lcmd.command == MAV_CMD_LOGGING_STOP))
+    return 1.0;
 
-  // ACKNOWLEDGE
+  StreamerState state = state_, new_state = StreamerState::STATE_UNKNOWN;
+
+  // check if current state corresponds with the command
+  if (lcmd.command == MAV_CMD_LOGGING_START) {
+    // LOG(INFO) << "Received MAV_CMD_LOGGING_START";
+    if (state == StreamerState::STATE_INIT) {
+      new_state = StreamerState::STATE_CONNECTED;
+      target_system_ = targetMcastId;
+      target_component_ = targetCompId;
+    } else if (state == StreamerState::STATE_STOPPED) {
+      if (target_system_ == targetMcastId && target_component_ == targetCompId)
+        new_state = StreamerState::STATE_RUNNING;
+    }
+  } else {
+    // LOG(INFO) << "Received MAV_CMD_LOGGING_STOP";
+    if (state == StreamerState::STATE_RUNNING) {
+      if (target_system_ == targetMcastId && target_component_ == targetCompId)
+        new_state = StreamerState::STATE_STOPPED;
+    }
+  }
+
   mavlink_command_ack_t ack;
   ack.command = lcmd.command;
-  ack.result = MAV_RESULT_ACCEPTED;
-  if (state_ == StreamerState::STATE_INIT &&
-      lcmd.command == MAV_CMD_LOGGING_START) {
-    ack.result_param2 = MutelemetryStreamer::get_port();
-    ack.progress = ack.result;
-    ack.target_system = targetMcastId;    // lcmd.target_system;
-    ack.target_component = targetCompId;  // lcmd.target_component;
+  ack.result = (new_state != StreamerState::STATE_UNKNOWN) ? MAV_RESULT_ACCEPTED
+                                                           : MAV_RESULT_FAILED;
+  ack.result_param2 = MutelemetryStreamer::get_port();
+  ack.progress = ack.result;
+  ack.target_system = targetMcastId;
+  ack.target_component = targetCompId;
 
-    std::shared_ptr<mavlink_message_t> msg =
-        std::make_shared<mavlink_message_t>();
-    mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
-                                   &(*msg), &ack);
+  mavlink_message_t msg;
+  mavlink_msg_command_ack_encode(roster_->getMcastId(), roster_->getMcompId(),
+                                 &msg, &ack);
+  roster_->sendmavmsg(msg,
+                      {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
 
-    fflow::post_function<void>([msg, targetMcastId, targetCompId,
-                                this](void) -> void {
-      roster_->sendmavmsg(
-          *msg, {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
-      if (state_ == StreamerState::STATE_INIT) {
-        ++try_connect_cntr_;
-        LOG(INFO) << ">>>>> Connection attempt " << uint32_t(try_connect_cntr_);
-        // FIXME: temporal workaround for connection establishment
-        // if (try_connect_cntr_ == 2) {
-        target_system_ = targetMcastId;
-        target_component_ = targetCompId;
-        set_state(state_, StreamerState::STATE_CONNECTED);
-        LOG(INFO) << "Connection established, state changed to " << state_;
-        //}
-      }
-    });
+  if (new_state != StreamerState::STATE_UNKNOWN) {
+    bool result = set_state(state, new_state);
+    // LOG(INFO) << "State changed from " << state << " to " << state_;
+    assert(result);
   }
 
   return 1.0;
@@ -156,7 +162,7 @@ bool MutelemetryStreamer::send_ulog_ack(const uint8_t *data, size_t data_len,
 }
 
 void MutelemetryStreamer::sync_loop() {
-  LOG(INFO) << "Sync loop started";
+  // LOG(INFO) << "Sync loop started";
   assert(running_ == false);
 
   while (true) {
@@ -192,7 +198,7 @@ void MutelemetryStreamer::sync_loop() {
   while (seq_ < defs_sz) {
     StreamerState state = state_.load();
 
-    //    LOG(INFO) << "State is " << state;
+    // LOG(INFO) << "State is " << state;
 
     switch (state) {
       case StreamerState::STATE_CONNECTED:
@@ -250,33 +256,43 @@ void MutelemetryStreamer::sync_loop() {
         break;
 
       default:
-        LOG(ERROR) << "UNKNOWN state";
+        LOG(ERROR) << state << " state";
         assert(0);
     }
   }
 
   set_state(state_.load(), StreamerState::STATE_RUNNING);
   running_ = true;
-  LOG(INFO) << "Sync loop exited";
+  // LOG(INFO) << "Sync loop exited";
 }
 
 void MutelemetryStreamer::discard_loop() {
   while (!discarding_) this_thread::sleep_for(chrono::milliseconds(50));
-  LOG(INFO) << "Discard loop started";
-  while (!running_) data_queue_->dequeue();
-  LOG(INFO) << "Discard loop exited";
+  // LOG(INFO) << "Discard loop started";
+  while (!running_) {
+    data_queue_->dequeue();
+    ++skip_cntr_;
+  }
+  // LOG(INFO) << "Discard loop exited";
 }
 
 void MutelemetryStreamer::main_loop() {
   if (!running_) return;
 
-  LOG(INFO) << "State is " << state_;
-  assert(state_ == StreamerState::STATE_RUNNING);
+  StreamerState st = state_;
+  // LOG(INFO) << "State is " << st;
+  assert(st == StreamerState::STATE_RUNNING ||
+         st == StreamerState::STATE_STOPPED);
 
-  // LOG(INFO) << "Main loop started";
   while (!data_queue_->empty()) {
     auto dp = data_queue_->dequeue();
     assert(dp != nullptr);
+
+    if (st == StreamerState::STATE_STOPPED) {
+      ++skip_cntr_;
+      // LOG(INFO) << "Skipping " << skip_cntr_ << "ULog packet";
+      continue;
+    }
 
     const uint8_t *buffer = dp->data();
 #ifdef CHECK_PARSE_VALIDITY_STREAMER
@@ -291,12 +307,14 @@ void MutelemetryStreamer::main_loop() {
 
     // send ULog data without acknowledgement
     if (!send_ulog(buffer, dp->size())) {
-      // LOG(INFO) << "ULog data won't fit into mavlink buffer, skipping";
+      ++skip_cntr_;
+      // LOG(INFO) << "ULog packet " << skip_cntr_
+      //          << " won't fit into mavlink buffer, skipping";
     } else {
-      LOG(INFO) << "ULog packet " << ++send_cntr_ << " sent";
+      ++send_cntr_;
+      // LOG(INFO) << "ULog packet " << send_cntr_ << " sent";
     }
   }
-  // LOG(INFO) << "Main loop exited";
 }
 
 void MutelemetryStreamer::run(bool rt) {
