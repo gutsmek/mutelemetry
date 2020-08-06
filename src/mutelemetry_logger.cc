@@ -38,8 +38,9 @@ bool MutelemetryLogger::init(const std::string &filename,
 
 void MutelemetryLogger::release(bool on_file_error) {
   if (file_.is_open()) {
-    if (!on_file_error && curr_idx_->has_data()) {
-      start_io_worker(curr_idx_, true);
+    DataBuffer *curr_idx = curr_idx_;
+    if (!on_file_error && curr_idx->has_data()) {
+      start_io_worker(curr_idx, true);
       curr_idx_ = nullptr;
     }
     file_.close();
@@ -50,20 +51,17 @@ void MutelemetryLogger::release(bool on_file_error) {
 void MutelemetryLogger::start_io_worker(DataBuffer *dbp, bool do_flush) {
   post_function<void>([dbp, do_flush, this](void) -> void {
     SerializedData result = dbp->data();
-    {
-      std::lock_guard<std::mutex> lock(io_mutex_);
-      file_.write(reinterpret_cast<const char *>(result.data()), result.size());
-    }
-    if (file_.bad()) {
-      release(true);
-      LOG(ERROR) << "Error writing to " << filename_ << endl;
-    } else if (do_flush)
-      flush();
     dbp->clear();
     {
       std::lock_guard<std::mutex> lock(idx_mutex_);
       pool_stacked_index_.push(dbp);
     }
+
+    if (!write(result)) {
+      release(true);
+      LOG(ERROR) << "Error writing to " << filename_ << endl;
+    } else if (do_flush)
+      flush();
   });
 }
 
@@ -71,6 +69,7 @@ void MutelemetryLogger::main_loop() {
   if (!running_) return;
 
   while (!data_queue_->empty()) {
+#if 0
     auto dp = data_queue_->dequeue();
     assert(dp != nullptr);
     assert(dp->size() <= DataBuffer::max_data_size_);
@@ -84,20 +83,53 @@ void MutelemetryLogger::main_loop() {
 #endif
 
     DataBuffer *io_idx = curr_idx_;
-    bool is_full = curr_idx_->add(dp);
+    bool is_full = io_idx->add(dp);
     if (is_full) {
       if (!idx_mutex_.try_lock()) continue;
       if (pool_stacked_index_.size() == 0) {
         idx_mutex_.unlock();
         return;
       }
-      curr_idx_ = pool_stacked_index_.top();
-      assert(curr_idx_->size() == 0);
+
+      bool result =
+          curr_idx_.compare_exchange_weak(io_idx, pool_stacked_index_.top());
+      if (!result) {
+        idx_mutex_.unlock();
+        assert(0);
+        return;
+      }
+      assert(curr_idx_.load()->size() == 0);
       pool_stacked_index_.pop();
       idx_mutex_.unlock();
+
       start_io_worker(io_idx);
     }
-  }
+#else
+    DataBuffer *io_idx = curr_idx_;
+    if (io_idx->full()) {
+      if (!idx_mutex_.try_lock()) continue;
+      if (pool_stacked_index_.size() == 0) {
+        idx_mutex_.unlock();
+        return;
+      }
+      if (!curr_idx_.compare_exchange_weak(io_idx, pool_stacked_index_.top())) {
+        idx_mutex_.unlock();
+        return;
+      }
+      pool_stacked_index_.pop();
+      assert(curr_idx_.load()->size() == 0);
+      idx_mutex_.unlock();
+
+      start_io_worker(io_idx);
+      io_idx = curr_idx_;
+    }
+
+    auto dp = data_queue_->dequeue();
+    assert(dp != nullptr);
+    assert(dp->size() <= DataBuffer::max_data_size_);
+    io_idx->add(dp);
+#endif
+  } /* end while */
 
   DataBuffer *io_idx = curr_idx_;
   if (io_idx->can_start_io()) {
@@ -106,10 +138,17 @@ void MutelemetryLogger::main_loop() {
       idx_mutex_.unlock();
       return;
     }
-    curr_idx_ = pool_stacked_index_.top();
-    assert(curr_idx_->size() == 0);
+
+    bool result =
+        curr_idx_.compare_exchange_weak(io_idx, pool_stacked_index_.top());
+    if (!result) {
+      idx_mutex_.unlock();
+      return;
+    }
     pool_stacked_index_.pop();
+    assert(curr_idx_.load()->size() == 0);
     idx_mutex_.unlock();
+
     start_io_worker(io_idx, true);
   }
 }

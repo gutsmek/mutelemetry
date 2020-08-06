@@ -18,20 +18,20 @@ namespace mutelemetry_logger {
 class MutelemetryLogger {
   class DataBuffer {
    public:
-    DataBuffer() : data_size_(0) {}
+    DataBuffer() : data_size_(0), is_full_(false) {}
     DataBuffer(const DataBuffer &) = delete;
     DataBuffer &operator=(const DataBuffer &) = delete;
     virtual ~DataBuffer() = default;
 
    public:
     bool add(mutelemetry_tools::SerializedDataPtr dp) {
-      bool is_full = false;
       size_t data_size = dp->size();
-      if (data_size + data_size_ >= max_data_size_) is_full = true;
+      std::lock_guard<std::mutex> lock(mutex_);
       if (!has_data()) add_started_ = std::chrono::system_clock::now();
+      if (data_size + data_size_ >= max_data_size_) is_full_ = true;
       data_size_ += data_size;
       buffer_.emplace_back(dp);
-      return is_full;
+      return is_full_;
     }
 
     bool can_start_io() const {
@@ -43,15 +43,18 @@ class MutelemetryLogger {
     }
 
     mutelemetry_tools::SerializedDataPtr operator[](size_t idx) {
+      std::lock_guard<std::mutex> lock(mutex_);
       if (idx >= buffer_.size()) return nullptr;
       return buffer_[idx];
     }
 
     inline bool has_data() const { return data_size_ > 0; }
     inline size_t size() const { return data_size_; }
+    inline bool full() const { return is_full_; }
 
     mutelemetry_tools::SerializedData data() const {
       mutelemetry_tools::SerializedData result;
+      std::lock_guard<std::mutex> lock(mutex_);
       size_t total = buffer_.size();
       for (size_t i = 0; i < total; ++i) {
         mutelemetry_tools::SerializedDataPtr dp = buffer_[i];
@@ -61,8 +64,10 @@ class MutelemetryLogger {
     }
 
     inline void clear() {
+      std::lock_guard<std::mutex> lock(mutex_);
       buffer_.clear();
       data_size_ = 0;
+      is_full_ = false;
     }
 
    public:
@@ -72,7 +77,9 @@ class MutelemetryLogger {
    private:
     std::chrono::time_point<std::chrono::system_clock> add_started_;
     size_t data_size_;
+    bool is_full_;
     std::vector<mutelemetry_tools::SerializedDataPtr> buffer_;
+    mutable std::mutex mutex_;
   };
 
  public:
@@ -100,6 +107,12 @@ class MutelemetryLogger {
     if (file_.is_open()) file_.flush();
   }
 
+  inline bool write(const mutelemetry_tools::SerializedData &result) {
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    file_.write(reinterpret_cast<const char *>(result.data()), result.size());
+    return !file_.bad();
+  }
+
   void main_loop();
   void start_io_worker(DataBuffer *, bool do_flush = false);
 
@@ -111,8 +124,8 @@ class MutelemetryLogger {
   std::ofstream file_;
   std::array<DataBuffer, 8> mem_pool_;
   std::stack<DataBuffer *> pool_stacked_index_;
-  std::mutex idx_mutex_;
-  DataBuffer *curr_idx_;
+  std::atomic<DataBuffer *> curr_idx_;
+  mutable std::mutex idx_mutex_;
   mutable std::mutex io_mutex_;
 };
 
