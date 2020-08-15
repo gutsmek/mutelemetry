@@ -28,8 +28,8 @@ uint64_t msg_cntr = 0;
 
 message_handler_note_t mutelemetry_proto_handlers[] = {
     {MAVLINK_MSG_ID_COMMAND_LONG,
-     [](uint8_t *payload, size_t len,
-        fflow::SparseAddress sa) -> fflow::pointprec_t {
+     [](uint8_t *payload, size_t len, fflow::SparseAddress sa,
+        IComponentPtr cc) -> fflow::pointprec_t {
        mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
        mavlink_command_long_t cmd;
        mavlink_msg_command_long_decode(rxmsg, &cmd);
@@ -38,8 +38,8 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        return 1.0;
      }},
     {MAVLINK_MSG_ID_COMMAND_ACK /* #77 */,
-     [](uint8_t *payload, size_t len,
-        fflow::SparseAddress sa) -> fflow::pointprec_t {
+     [](uint8_t *payload, size_t len, fflow::SparseAddress sa,
+        IComponentPtr cc) -> fflow::pointprec_t {
        mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
        mavlink_command_ack_t ack;
        mavlink_msg_command_ack_decode(rxmsg, &ack);
@@ -59,8 +59,8 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        return 1.0;
      }},
     {MAVLINK_MSG_ID_LOGGING_DATA /* #266 */,
-     [](uint8_t *payload, size_t len,
-        fflow::SparseAddress sa) -> fflow::pointprec_t {
+     [](uint8_t *payload, size_t len, fflow::SparseAddress sa,
+        IComponentPtr cc) -> fflow::pointprec_t {
        mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
        mavlink_logging_data_t logd;
        mavlink_msg_logging_data_decode(rxmsg, &logd);
@@ -78,8 +78,8 @@ message_handler_note_t mutelemetry_proto_handlers[] = {
        return 1.0;
      }},
     {MAVLINK_MSG_ID_LOGGING_DATA_ACKED /* #267 */,
-     [](uint8_t *payload, size_t len,
-        fflow::SparseAddress sa) -> fflow::pointprec_t {
+     [](uint8_t *payload, size_t len, fflow::SparseAddress sa,
+        IComponentPtr cc) -> fflow::pointprec_t {
        mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
        mavlink_logging_data_acked_t logda;
        mavlink_msg_logging_data_acked_decode(rxmsg, &logda);
