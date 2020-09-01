@@ -32,7 +32,7 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
 
   // check if current state corresponds with the command
   if (lcmd.command == MAV_CMD_LOGGING_START) {
-    // LOG(INFO) << "Received MAV_CMD_LOGGING_START";
+    LOG(INFO) << "Received MAV_CMD_LOGGING_START";
     if (state == StreamerState::STATE_INIT) {
       new_state = StreamerState::STATE_CONNECTED;
       target_system_ = targetMcastId;
@@ -42,11 +42,9 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
         new_state = StreamerState::STATE_RUNNING;
     }
   } else {
-    // LOG(INFO) << "Received MAV_CMD_LOGGING_STOP";
-    if (state == StreamerState::STATE_RUNNING) {
-      if (target_system_ == targetMcastId && target_component_ == targetCompId)
-        new_state = StreamerState::STATE_STOPPED;
-    }
+    LOG(INFO) << "Received MAV_CMD_LOGGING_STOP";
+    if (target_system_ == targetMcastId && target_component_ == targetCompId)
+      new_state = StreamerState::STATE_STOPPED;
   }
 
   mavlink_command_ack_t ack;
@@ -235,8 +233,10 @@ void MutelemetryStreamer::sync_loop() {
         seq_++;
       } break;
 
+      case StreamerState::STATE_STOPPED:
+        this_thread::sleep_for(chrono::milliseconds(100));
       case StreamerState::STATE_INIT:
-        this_thread::sleep_for(chrono::milliseconds(50));
+        this_thread::sleep_for(chrono::milliseconds(100));
         break;
 
       case StreamerState::STATE_ACK_WAIT:
@@ -290,7 +290,7 @@ void MutelemetryStreamer::main_loop() {
 
     if (st == StreamerState::STATE_STOPPED) {
       ++skip_cntr_;
-      // LOG(INFO) << "Skipping " << skip_cntr_ << "ULog packet";
+      // LOG(INFO) << "Skipping " << skip_cntr_ << " ULog packet";
       continue;
     }
 
