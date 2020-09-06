@@ -87,9 +87,11 @@ class MutelemetryStreamer {
   // protocol definition
  private:
   fflow::pointprec_t proto_command_handler(uint8_t *, size_t,
-                                           fflow::SparseAddress);
+                                           fflow::SparseAddress,
+                                           IComponentPtr cc);
   fflow::pointprec_t proto_logging_ack_handler(uint8_t *, size_t,
-                                               fflow::SparseAddress);
+                                               fflow::SparseAddress,
+                                               IComponentPtr cc);
 
   uint8_t target_system_;
   uint8_t target_component_;
@@ -103,11 +105,11 @@ class MutelemetryStreamer {
       {MAVLINK_MSG_ID_COMMAND_LONG /* #76 */,
        std::bind(&MutelemetryStreamer::proto_command_handler, this,
                  std::placeholders::_1, std::placeholders::_2,
-                 std::placeholders::_3)},
+                 std::placeholders::_3, std::placeholders::_4)},
       {MAVLINK_MSG_ID_LOGGING_ACK /* #268 */,
-       [this](uint8_t *a, size_t b,
-              fflow::SparseAddress c) -> fflow::pointprec_t {
-         return proto_logging_ack_handler(a, b, c);
+       [this](uint8_t *a, size_t b, fflow::SparseAddress c,
+              IComponentPtr d) -> fflow::pointprec_t {
+         return proto_logging_ack_handler(a, b, c, d);
        }},
   };
 

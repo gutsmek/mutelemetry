@@ -13,6 +13,12 @@ using namespace mutelemetry;
 using namespace mutelemetry_ulog;
 using namespace mutelemetry_tools;
 
+class LoggingComponent : public IComponent {
+ public:
+  LoggingComponent() { id = MAV_COMP_ID_LOG; }
+  virtual ~LoggingComponent() {}
+};
+
 MuTelemetry MuTelemetry::instance_ = {};
 
 bool MuTelemetry::read_config(const string &file) {
@@ -62,6 +68,9 @@ bool MuTelemetry::init(fflow::RouteSystemPtr roster, bool rt) {
     LOG(INFO) << "MuTelemetry already initialized\n";
     return false;
   }
+
+  // put component on the bus
+  roster->addComponent(new LoggingComponent());
 
   instance.start_timestamp_ = instance.timestamp();
   if (instance.read_config()) {

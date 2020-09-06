@@ -15,13 +15,18 @@ using namespace mutelemetry_network;
 using namespace mutelemetry_tools;
 
 fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
-    uint8_t *payload, size_t len, fflow::SparseAddress sa) {
+    uint8_t *payload, size_t len, fflow::SparseAddress sa, IComponentPtr cc) {
   mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
   mavlink_command_long_t lcmd;
   mavlink_msg_command_long_decode(rxmsg, &lcmd);
 
+#if 1
   uint32_t targetMcastId = sa.group_id;
   uint32_t targetCompId = sa.instance_id;
+#else
+  uint32_t targetMcastId = lcmd.target_system;
+  uint32_t targetCompId = lcmd.target_component;
+#endif
 
   // skip all except start/stop commands
   if (!(lcmd.command == MAV_CMD_LOGGING_START ||
@@ -29,6 +34,8 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
     return 1.0;
 
   StreamerState state = state_, new_state = StreamerState::STATE_UNKNOWN;
+
+  bool confirm = lcmd.confirmation;
 
   // check if current state corresponds with the command
   if (lcmd.command == MAV_CMD_LOGGING_START) {
@@ -38,15 +45,31 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
       target_system_ = targetMcastId;
       target_component_ = targetCompId;
     } else if (state == StreamerState::STATE_STOPPED) {
-      if (target_system_ == targetMcastId && target_component_ == targetCompId)
+      if (target_system_ == targetMcastId &&
+          target_component_ == targetCompId) {
         new_state = StreamerState::STATE_RUNNING;
+      }
     }
   } else {
-    LOG(INFO) << "Received MAV_CMD_LOGGING_STOP";
-    if (target_system_ == targetMcastId && target_component_ == targetCompId)
-      new_state = StreamerState::STATE_STOPPED;
+    LOG(INFO) << "Received MAV_CMD_LOGGING_STOP" << uint32_t(target_system_)
+              << "==" << uint32_t(targetMcastId) << " ; "
+              << uint32_t(target_component_) << "==" << uint32_t(targetCompId);
+    if (state == StreamerState::STATE_RUNNING) {
+      if (target_system_ == targetMcastId &&
+          target_component_ == targetCompId) {
+        new_state = StreamerState::STATE_STOPPED;
+        LOG(INFO) << "new_state = StreamerState::STATE_STOPPED";
+      }
+    }
   }
 
+  if (new_state != StreamerState::STATE_UNKNOWN) {
+    bool result = set_state(state, new_state);
+    LOG(INFO) << "State changed from " << state << " to " << state_;
+    assert(result);
+  }
+
+#if 0
   mavlink_command_ack_t ack;
   ack.command = lcmd.command;
   ack.result = (new_state != StreamerState::STATE_UNKNOWN) ? MAV_RESULT_ACCEPTED
@@ -62,17 +85,32 @@ fflow::pointprec_t MutelemetryStreamer::proto_command_handler(
   roster_->sendmavmsg(msg,
                       {fflow::SparseAddress(targetMcastId, targetCompId, 0)});
 
-  if (new_state != StreamerState::STATE_UNKNOWN) {
-    bool result = set_state(state, new_state);
-    // LOG(INFO) << "State changed from " << state << " to " << state_;
-    assert(result);
+#else
+  if (confirm) {
+    // send back ack (use from.instance_id as destination)
+    mavlink_message_t msg;
+
+    mavlink_msg_command_ack_pack(
+        uint8_t(lcmd.target_system) /*system_id*/,
+        uint8_t(lcmd.target_component) /* our own component_id*/, &msg /*msg*/,
+        lcmd.command /*command*/,
+        (new_state != StreamerState::STATE_UNKNOWN) /*result*/
+            ? MAV_RESULT_ACCEPTED
+            : MAV_RESULT_FAILED,
+        0 /*progress*/, MutelemetryStreamer::get_port() /*result_param2*/,
+        uint8_t(sa.group_id) /*target_system*/,
+        sa.instance_id /* target_component */);
+
+    roster_->sendmavmsg(msg,
+                        {fflow::SparseAddress(sa.group_id, sa.instance_id, 0)});
   }
+#endif
 
   return 1.0;
 }
 
 fflow::pointprec_t MutelemetryStreamer::proto_logging_ack_handler(
-    uint8_t *payload, size_t len, fflow::SparseAddress sa) {
+    uint8_t *payload, size_t len, fflow::SparseAddress sa, IComponentPtr cc) {
   mavlink_message_t *rxmsg = MAVPAYLOAD_TO_MAVMSG(payload);
   mavlink_logging_ack_t logging_ack;
   mavlink_msg_logging_ack_decode(rxmsg, &logging_ack);
@@ -101,8 +139,9 @@ fflow::pointprec_t MutelemetryStreamer::proto_logging_ack_handler(
   return 1.0;
 }
 
-bool MutelemetryStreamer::init(RouteSystemPtr roster,
-                               ConcQueue<SerializedDataPtr> *data_queue) {
+bool MutelemetryStreamer::init(
+    RouteSystemPtr roster,
+    mutelemetry_tools::ConcQueue<SerializedDataPtr> *data_queue) {
   if (running_ || roster_ != nullptr || data_queue_ != nullptr) return false;
   if (roster == nullptr || data_queue == nullptr) return false;
 
@@ -145,8 +184,8 @@ bool MutelemetryStreamer::send_ulog_ack(const uint8_t *data, size_t data_len,
     return false;
   }
 
-  // LOG(INFO) << "Send ULog definition message of size=" << data_len
-  //          << " with seq=" << uint32_t(seq);
+  LOG(INFO) << "Send ULog definition message of size=" << data_len
+            << " with seq=" << uint32_t(seq);
 
   mavlink_message_t msg;
   uint16_t msg_len = mavlink_msg_logging_data_acked_pack(
@@ -160,7 +199,7 @@ bool MutelemetryStreamer::send_ulog_ack(const uint8_t *data, size_t data_len,
 }
 
 void MutelemetryStreamer::sync_loop() {
-  // LOG(INFO) << "Sync loop started";
+  LOG(INFO) << "Sync loop started";
   assert(running_ == false);
 
   while (true) {
@@ -196,7 +235,8 @@ void MutelemetryStreamer::sync_loop() {
   while (seq_ < defs_sz) {
     StreamerState state = state_.load();
 
-    // LOG(INFO) << "State is " << state;
+    //    LOG(INFO) << "State is " << state << " seq:" << seq_
+    //              << " seqsize: " << defs_sz;
 
     switch (state) {
       case StreamerState::STATE_CONNECTED:
@@ -263,24 +303,24 @@ void MutelemetryStreamer::sync_loop() {
 
   set_state(state_.load(), StreamerState::STATE_RUNNING);
   running_ = true;
-  // LOG(INFO) << "Sync loop exited";
+  LOG(INFO) << "Sync loop exited";
 }
 
 void MutelemetryStreamer::discard_loop() {
   while (!discarding_) this_thread::sleep_for(chrono::milliseconds(50));
-  // LOG(INFO) << "Discard loop started";
+  LOG(INFO) << "Discard loop started";
   while (!running_) {
     data_queue_->dequeue();
     ++skip_cntr_;
   }
-  // LOG(INFO) << "Discard loop exited";
+  LOG(INFO) << "Discard loop exited";
 }
 
 void MutelemetryStreamer::main_loop() {
   if (!running_) return;
 
-  StreamerState st = state_;
-  // LOG(INFO) << "State is " << st;
+  StreamerState st = state_.load();
+  VLOG(5) << "State is " << st;
   assert(st == StreamerState::STATE_RUNNING ||
          st == StreamerState::STATE_STOPPED);
 
@@ -290,7 +330,7 @@ void MutelemetryStreamer::main_loop() {
 
     if (st == StreamerState::STATE_STOPPED) {
       ++skip_cntr_;
-      // LOG(INFO) << "Skipping " << skip_cntr_ << " ULog packet";
+      VLOG(5) << "Skipping " << skip_cntr_ << " ULog packet";
       continue;
     }
 
@@ -308,11 +348,11 @@ void MutelemetryStreamer::main_loop() {
     // send ULog data without acknowledgement
     if (!send_ulog(buffer, dp->size())) {
       ++skip_cntr_;
-      // LOG(INFO) << "ULog packet " << skip_cntr_
-      //          << " won't fit into mavlink buffer, skipping";
+      VLOG(4) << "ULog packet " << skip_cntr_
+              << " won't fit into mavlink buffer, skipping";
     } else {
       ++send_cntr_;
-      // LOG(INFO) << "ULog packet " << send_cntr_ << " sent";
+      VLOG(4) << "ULog packet " << send_cntr_ << " sent";
     }
   }
 }
