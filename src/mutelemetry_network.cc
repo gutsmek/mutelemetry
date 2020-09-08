@@ -139,9 +139,8 @@ fflow::pointprec_t MutelemetryStreamer::proto_logging_ack_handler(
   return 1.0;
 }
 
-bool MutelemetryStreamer::init(
-    RouteSystemPtr roster,
-    mutelemetry_tools::ConcQueue<SerializedDataPtr> *data_queue) {
+bool MutelemetryStreamer::init(RouteSystemPtr roster,
+                               ConcQueue<SerializedDataPtr> *data_queue) {
   if (running_ || roster_ != nullptr || data_queue_ != nullptr) return false;
   if (roster == nullptr || data_queue == nullptr) return false;
 
