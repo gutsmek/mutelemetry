@@ -75,8 +75,8 @@ class MuTelemetry {
   std::unordered_map<uint16_t, ID<uint8_t>> multi_id_;
   std::mutex multi_id_mutex_;
 
-  mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> log_queue_;
-  mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> net_queue_;
+  ConcQueue<mutelemetry_tools::SerializedDataPtr> log_queue_;
+  ConcQueue<mutelemetry_tools::SerializedDataPtr> net_queue_;
 
   mutelemetry_logger::MutelemetryLogger logger_;
   mutelemetry_network::MutelemetryStreamer streamer_;

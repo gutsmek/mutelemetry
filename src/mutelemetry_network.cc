@@ -139,9 +139,8 @@ fflow::pointprec_t MutelemetryStreamer::proto_logging_ack_handler(
   return 1.0;
 }
 
-bool MutelemetryStreamer::init(
-    RouteSystemPtr roster,
-    mutelemetry_tools::ConcQueue<SerializedDataPtr> *data_queue) {
+bool MutelemetryStreamer::init(RouteSystemPtr roster,
+                               ConcQueue<SerializedDataPtr> *data_queue) {
   if (running_ || roster_ != nullptr || data_queue_ != nullptr) return false;
   if (roster == nullptr || data_queue == nullptr) return false;
 
@@ -163,10 +162,16 @@ bool MutelemetryStreamer::send_ulog(const uint8_t *data, size_t data_len) {
   std::shared_ptr<mavlink_message_t> msg =
       std::make_shared<mavlink_message_t>();
 
+  ///< @bug workaround of mavlink_msg_logging_data_pack() which copies
+  /// exactly 249 bytes of data into ulog payload. We'r forced to fit
+  /// data buffer to 249 byets as well even if its passed as 'const'
+  uint8_t tempbuf[MAVLINK_MSG_LOGGING_DATA_FIELD_DATA_LEN];
+  memcpy(tempbuf, data, data_len);
+
   uint16_t msg_len = mavlink_msg_logging_data_pack(
       roster_->getMcastId(), roster_->getMcompId(), &(*msg), target_system_,
-      target_component_, 0, uint8_t(data_len), 255, data);
-  (void)msg_len;
+      target_component_, 0, uint8_t(data_len), 255, tempbuf);
+
   fflow::post_function<void>([msg, this](void) -> void {
     roster_->sendmavmsg(
         *msg, {fflow::SparseAddress(target_system_, target_component_, 0)});
