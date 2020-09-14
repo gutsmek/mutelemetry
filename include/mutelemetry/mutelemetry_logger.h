@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <muroute/concqueue.h>
+
 #include "mutelemetry/mutelemetry_tools.h"
 
 namespace mutelemetry_logger {
@@ -97,9 +99,8 @@ class MutelemetryLogger {
 
   void start();
   void stop() { running_ = false; }
-  bool init(
-      const std::string &,
-      mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
+  bool init(const std::string &,
+            ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
   void release(bool on_file_error = false);
 
  private:
@@ -118,8 +119,7 @@ class MutelemetryLogger {
 
  private:
   std::atomic<bool> running_;
-  mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr>
-      *data_queue_;
+  ConcQueue<mutelemetry_tools::SerializedDataPtr> *data_queue_;
   std::string filename_;
   std::ofstream file_;
   std::array<DataBuffer, 8> mem_pool_;

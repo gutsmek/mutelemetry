@@ -60,9 +60,8 @@ class MutelemetryStreamer {
  public:
   // FIXME: make start/stop interface
   void run(bool rt);
-  bool init(
-      fflow::RouteSystemPtr,
-      mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
+  bool init(fflow::RouteSystemPtr,
+            ConcQueue<mutelemetry_tools::SerializedDataPtr> *);
   void release() {}
 
  private:
@@ -74,8 +73,7 @@ class MutelemetryStreamer {
   std::atomic<bool> discarding_;
   std::atomic<bool> running_;
   fflow::RouteSystemPtr roster_;
-  mutelemetry_tools::ConcQueue<mutelemetry_tools::SerializedDataPtr>
-      *data_queue_;
+  ConcQueue<mutelemetry_tools::SerializedDataPtr> *data_queue_;
   std::atomic<StreamerState> state_;
   size_t seq_;
   std::vector<mutelemetry_tools::SerializedDataPtr> definitions_;
