@@ -6,6 +6,7 @@
 #include <thread>
 
 //#define CHECK_PARSE_VALIDITY_LOGGER
+//#define USE_POST_FUNCTION_ON_IO
 
 using namespace std;
 using namespace fflow;
@@ -49,7 +50,9 @@ void MutelemetryLogger::release(bool on_file_error) {
 }
 
 void MutelemetryLogger::start_io_worker(DataBuffer *dbp, bool do_flush) {
+#ifdef USE_POST_FUNCTION_ON_IO
   post_function<void>([dbp, do_flush, this](void) -> void {
+#endif
     SerializedData result = dbp->data();
     dbp->clear();
     {
@@ -62,49 +65,15 @@ void MutelemetryLogger::start_io_worker(DataBuffer *dbp, bool do_flush) {
       LOG(ERROR) << "Error writing to " << filename_ << endl;
     } else if (do_flush)
       flush();
+#ifdef USE_POST_FUNCTION_ON_IO
   });
+#endif
 }
 
 void MutelemetryLogger::main_loop() {
   if (!running_) return;
 
   while (!data_queue_->empty()) {
-#if 0
-    auto dp = data_queue_->dequeue();
-    assert(dp != nullptr);
-    assert(dp->size() <= DataBuffer::max_data_size_);
-
-#ifdef CHECK_PARSE_VALIDITY_LOGGER
-    const uint8_t *buffer = dp->data();
-    if (!check_ulog_valid(buffer)) {
-      LOG(ERROR) << "Validity check failed";
-      assert(0);
-    }
-#endif
-
-    DataBuffer *io_idx = curr_idx_;
-    bool is_full = io_idx->add(dp);
-    if (is_full) {
-      if (!idx_mutex_.try_lock()) continue;
-      if (pool_stacked_index_.size() == 0) {
-        idx_mutex_.unlock();
-        return;
-      }
-
-      bool result =
-          curr_idx_.compare_exchange_weak(io_idx, pool_stacked_index_.top());
-      if (!result) {
-        idx_mutex_.unlock();
-        assert(0);
-        return;
-      }
-      assert(curr_idx_.load()->size() == 0);
-      pool_stacked_index_.pop();
-      idx_mutex_.unlock();
-
-      start_io_worker(io_idx);
-    }
-#else
     DataBuffer *io_idx = curr_idx_;
     if (io_idx->full()) {
       if (!idx_mutex_.try_lock()) continue;
@@ -127,8 +96,16 @@ void MutelemetryLogger::main_loop() {
     auto dp = data_queue_->dequeue();
     assert(dp != nullptr);
     assert(dp->size() <= DataBuffer::max_data_size_);
-    io_idx->add(dp);
+
+#ifdef CHECK_PARSE_VALIDITY_LOGGER
+    const uint8_t *buffer = dp->data();
+    if (!check_ulog_valid(buffer)) {
+      LOG(ERROR) << "Validity check failed";
+      assert(0);
+    }
 #endif
+
+    io_idx->add(dp);
   } /* end while */
 
   DataBuffer *io_idx = curr_idx_;
@@ -153,7 +130,89 @@ void MutelemetryLogger::main_loop() {
   }
 }
 
+void MutelemetryLogger::main_loop2() {
+  while (true) {
+    DataBuffer *io_idx = curr_idx_;
+
+    if (data_queue_->empty()) {
+      if (io_idx->can_start_io()) {
+        if (!idx_mutex_.try_lock()) {
+          this_thread::sleep_for(chrono::milliseconds(100));
+          continue;
+        }
+
+        if (pool_stacked_index_.size() == 0) {
+          idx_mutex_.unlock();
+          this_thread::sleep_for(chrono::milliseconds(100));
+          continue;
+        }
+
+        if (!curr_idx_.compare_exchange_weak(io_idx,
+                                             pool_stacked_index_.top())) {
+          idx_mutex_.unlock();
+          this_thread::sleep_for(chrono::milliseconds(100));
+          continue;
+        }
+        pool_stacked_index_.pop();
+
+        assert(curr_idx_.load()->size() == 0);
+        idx_mutex_.unlock();
+
+        start_io_worker(io_idx, true);
+      } else
+        this_thread::sleep_for(chrono::milliseconds(100));
+
+      continue;
+    }
+
+    if (io_idx->full()) {
+      if (!idx_mutex_.try_lock()) {
+        this_thread::sleep_for(chrono::milliseconds(100));
+        continue;
+      }
+
+      if (pool_stacked_index_.size() == 0) {
+        idx_mutex_.unlock();
+        this_thread::sleep_for(chrono::milliseconds(100));
+        continue;
+      }
+
+      if (!curr_idx_.compare_exchange_weak(io_idx, pool_stacked_index_.top())) {
+        idx_mutex_.unlock();
+        this_thread::sleep_for(chrono::milliseconds(100));
+        continue;
+      }
+      pool_stacked_index_.pop();
+
+      assert(curr_idx_.load()->size() == 0);
+      idx_mutex_.unlock();
+
+      start_io_worker(io_idx);
+      io_idx = curr_idx_;
+    }
+
+    auto dp = data_queue_->dequeue();
+    assert(dp != nullptr);
+    assert(dp->size() <= DataBuffer::max_data_size_);
+
+#ifdef CHECK_PARSE_VALIDITY_LOGGER
+    const uint8_t *buffer = dp->data();
+    if (!check_ulog_valid(buffer)) {
+      LOG(ERROR) << "Validity check failed";
+      assert(0);
+    }
+#endif
+
+    io_idx->add(dp);
+
+  } /* end while */
+}
+
 void MutelemetryLogger::start() {
+#if 1
   add_periodic<void>(([&](void) -> void { main_loop(); }), 0.000001, 0.1);
+#else
+  post_function<void>(([&](void) -> void { main_loop2(); }));
+#endif
   running_ = true;
 }
