@@ -115,6 +115,7 @@ class MutelemetryLogger {
   }
 
   void main_loop();
+  void main_loop2();
   void start_io_worker(DataBuffer *, bool do_flush = false);
 
  private:
